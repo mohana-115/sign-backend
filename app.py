@@ -1,9 +1,14 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import cv2
 import numpy as np
 from cvzone.HandTrackingModule import HandDetector
 
 app = Flask(__name__)
+
+# ✅ Allow Expo / Mobile / Web access
+CORS(app)
+
 detector = HandDetector(maxHands=2, detectionCon=0.7)
 
 # ---------------- UYIR + MEI GESTURES ----------------
@@ -136,69 +141,75 @@ uyir_mei_map = {
     ("ன்", "உ"): "னு", ("ன்", "ஊ"): "னூ", ("ன்", "எ"): "னெ", ("ன்", "ஏ"): "னே",
     ("ன்", "ஐ"): "னை", ("ன்", "ஒ"): "னொ", ("ன்", "ஓ"): "னோ", ("ன்", "ஔ"): "னௌ",
 }
-
-
-# ---------------- HOME ----------------
-@app.route('/')
+# ---------------- HOME ROUTE ----------------
+@app.route('/', methods=['GET'])
 def home():
-    return "Hand Detection Backend Running 🚀"
+    return jsonify({
+        "status": "running",
+        "message": "Hand Detection Backend is Live 🚀"
+    })
 
-# ---------------- MAIN API ----------------
+# ---------------- PROCESS IMAGE ----------------
 @app.route('/process_image', methods=['POST'])
 def process_image():
 
-    file = request.files['image']
-    npimg = np.frombuffer(file.read(), np.uint8)
-    img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+    try:
+        # ✅ check image exists
+        if 'image' not in request.files:
+            return jsonify({
+                "status": "error",
+                "message": "No image uploaded"
+            }), 400
 
-    hands, img = detector.findHands(img)
+        file = request.files['image']
 
-    if not hands:
+        # convert image
+        npimg = np.frombuffer(file.read(), np.uint8)
+        img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+
+        # detect hands
+        hands, img = detector.findHands(img)
+
+        if not hands:
+            return jsonify({
+                "status": "no_hand",
+                "letter": "No Hand Detected"
+            })
+
+        left_letter = None
+        right_letter = None
+
+        for hand in hands:
+            fingers = tuple(detector.fingersUp(hand))
+            hand_type = hand["type"].lower()
+
+            letter = uyir_mei_gestures.get(hand_type, {}).get(fingers, None)
+
+            if hand_type == "left":
+                left_letter = letter
+            else:
+                right_letter = letter
+
+        # combine logic
+        result = "Unknown"
+
+        if left_letter and right_letter:
+            result = uyir_mei_map.get((left_letter, right_letter), "Unknown")
+        elif right_letter:
+            result = right_letter
+        elif left_letter:
+            result = left_letter
+
         return jsonify({
-            "status": "no_hand",
-            "letter": "No Hand Detected"
+            "status": "success",
+            "letter": result
         })
 
-    left_letter = None
-    right_letter = None
-
-    # ---------------- DETECT HANDS ----------------
-    for hand in hands:
-        fingers = tuple(detector.fingersUp(hand))
-        hand_type = hand["type"].lower()
-
-        print("Hand:", hand_type, "Fingers:", fingers)
-
-        letter = uyir_mei_gestures.get(hand_type, {}).get(fingers, None)
-
-        if hand_type == "left":
-            left_letter = letter
-        else:
-            right_letter = letter
-
-    print("LEFT:", left_letter)
-    print("RIGHT:", right_letter)
-
-    # ---------------- FINAL COMBINE LOGIC ----------------
-    result = "Unknown"
-
-    # if both exist
-    if left_letter and right_letter and left_letter != "Unknown" and right_letter != "Unknown":
-        combo = (left_letter, right_letter)
-        result = uyir_mei_map.get(combo, "Unknown")
-
-    # fallback single hand
-    elif right_letter:
-        result = right_letter
-    elif left_letter:
-        result = left_letter
-
-    print("Final Result:", result)
-
-    return jsonify({
-        "status": "success",
-        "letter": result
-    })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 
 if __name__ == "__main__":
