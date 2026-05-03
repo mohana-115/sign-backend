@@ -2,5 +2,5 @@ flask
 opencv-python-headless
 numpy
 cvzone
-mediapipe
+mediapipe==0.10.9
 gunicorn
