@@ -4,3 +4,4 @@ numpy
 cvzone
 mediapipe==0.10.9
 gunicorn
+flask-cors
